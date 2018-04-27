@@ -13,3 +13,7 @@
 
 *.pyc
 *.o
+*.ipynb_checkpoint*
+
+*.tar.*
+*.zip
