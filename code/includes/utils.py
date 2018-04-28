@@ -7,6 +7,10 @@ from random import randrange
 np.warnings.filterwarnings('ignore')
 
 
+def bold(s):
+    return "\033[1m" + s + "\033[0m"
+
+
 def load_csv(filename, mapping=None, normalize=False):
     dataset = list()
 
@@ -73,30 +77,46 @@ def get_data(dataset):
                 [data, data ** 2, data ** 3], axis=1
             ),
             normalize=True
-        ), 2
+        ), [], 2
     # MNIST
     elif dataset == "mnist":
-        import mnist
+        # import mnist
 
-        images = mnist.train_images()
-        labels = mnist.train_labels()
+        # images = mnist.train_images()
+        # labels = mnist.train_labels()
 
-        images = images.reshape(
-            (images.shape[0], images.shape[1] * images.shape[2])
-        )
+        # images = images.reshape(
+        #     (images.shape[0], images.shape[1] * images.shape[2])
+        # )
 
-        images = images / 255.0
+        # images = images / 255.0
+
+        # train_set = np.concatenate([images, labels[:, None]], axis=1)
+
+        # images = mnist.test_images()
+        # labels = mnist.test_labels()
+
+        # images = images.reshape(
+        #     (images.shape[0], images.shape[1] * images.shape[2])
+        # )
+
+        # images = images / 255.0
+
+        # test_set = np.concatenate([images, labels[:, None]], axis=1)
+
+        # return train_set, test_set, 10
+
+        from tensorflow.examples.tutorials.mnist import input_data
+
+        mnist = input_data.read_data_sets("data/")
+
+        images = mnist.train.images
+        labels = mnist.train.labels
 
         train_set = np.concatenate([images, labels[:, None]], axis=1)
 
-        images = mnist.test_images()
-        labels = mnist.test_labels()
-
-        images = images.reshape(
-            (images.shape[0], images.shape[1] * images.shape[2])
-        )
-
-        images = images / 255.0
+        images = mnist.test.images
+        labels = mnist.test.labels
 
         test_set = np.concatenate([images, labels[:, None]], axis=1)
 

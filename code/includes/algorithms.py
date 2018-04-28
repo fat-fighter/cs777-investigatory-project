@@ -2,7 +2,10 @@ import sys
 import utils
 import numpy as np
 
+from math import ceil
 from tqdm import tqdm
+
+from utils import bold
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -13,71 +16,6 @@ from models.softmax import Softmax
 from models.logistic import Logistic
 from sklearn.neural_network import MLPClassifier as MLP
 
-from math import ceil
-
-
-def logistic_regression(train_set, test_set, verbose, l_rate, n_epochs, batch_size, tol):
-    model = Logistic(
-        data=train_set,
-        l_rate=l_rate,
-        n_iters=n_epochs,
-        batch_size=batch_size,
-        tol=tol,
-        verbose=verbose
-    )
-    model.fit()
-
-    predictions = model.predict(test_set[:, :-1])
-    predictions = np.round(predictions)
-
-    return predictions
-
-
-def boosted_logistic_regression(train_set, test_set, verbose, l_rate, eta, eta_decay, n_epochs, batch_size, tol, m_stop):
-    model = Logistic(
-        data=train_set,
-        l_rate=l_rate,
-        eta=eta,
-        eta_decay=eta_decay,
-        n_iters=n_epochs,
-        batch_size=batch_size,
-        tol=tol,
-        verbose=verbose
-    )
-    model.fit()
-
-    with tqdm(range(m_stop)) as bar:
-        bar.set_postfix(**{"Accuracy": 0})
-        for _ in bar:
-            model.fit(boosted=True)
-
-            predictions = model.predict(test_set[:, :-1])
-            predictions = np.round(predictions)
-
-            accuracy = np.mean(test_set[:, -1] == predictions) * 100
-            bar.set_postfix(**{"Accuracy": accuracy})
-
-    return predictions
-
-
-def mlp(train_set, test_set, verbose, l_rate, n_epochs, batch_size, hidden_size):
-    model = MLP(
-        hidden_layer_sizes=hidden_size,
-        learning_rate_init=0.1,
-        batch_size=batch_size,
-        max_iter=n_epochs,
-        activation='relu',
-        solver='sgd',
-        nesterovs_momentum=False,
-        verbose=verbose
-    )
-
-    model.fit(train_set[:, :-1], train_set[:, -1])
-
-    predictions = model.predict(test_set[:, :-1])
-
-    return predictions
-
 
 def softmax_regression(train_set, test_set, verbose, l_rate, n_classes, n_epochs, batch_size, tol):
     model = Softmax(
@@ -87,27 +25,33 @@ def softmax_regression(train_set, test_set, verbose, l_rate, n_classes, n_epochs
         n_epochs=n_epochs,
         tol=tol,
         batch_size=batch_size,
-        verbose=verbose
+        verbose=verbose,
+        direct=True
     )
     model.fit()
 
     predictions = model.predict(test_set[:, :-1])
     predictions = np.argmax(predictions, axis=1)
 
-    return predictions
+    return predictions, model
 
 
-def boosted_softmax_regression(train_set, test_set, verbose, l_rate, n_classes, n_epochs, batch_size, m_stop, eta):
+def boosted_softmax_regression(
+        train_set, test_set, verbose, l_rate, n_classes,
+        n_epochs, batch_size, m_stop, eta, activation, plot_file
+):
     model = Softmax(
         data=train_set,
         n_classes=n_classes,
         l_rate=l_rate,
         n_epochs=n_epochs,
         batch_size=batch_size,
+        activation=activation,
         verbose=verbose
     )
 
-    print "\033[1mStop 0\033[0m"
+    if verbose:
+        print bold("Stop 0")
     model.fit()
 
     accuracies = list()
@@ -116,18 +60,27 @@ def boosted_softmax_regression(train_set, test_set, verbose, l_rate, n_classes, 
     predictions = np.argmax(predictions, axis=1)
 
     accuracies.append(np.mean(test_set[:, -1] == predictions) * 100)
-    print "Test Accuracy: %f\n" % accuracies[-1]
+
+    print bold("Stop 0") + ", Test Accuracy: % f\n" % accuracies[-1]
 
     for stop in range(m_stop - 1):
-        print "\033[1mStop %d\033[0m" % (stop + 1)
+        if verbose:
+            print "\033[1mStop %d\033[0m" % (stop + 1)
+
         model.fit(boosted=True)
 
         predictions = model.predict(test_set[:, :-1])
         predictions = np.argmax(predictions, axis=1)
 
         accuracies.append(np.mean(test_set[:, -1] == predictions) * 100)
-        print "Test Accuracy: %f\n" % accuracies[-1]
 
+        print bold("Stop %d" % (stop+1)) + \
+            ", Test Accuracy: % f\n" % accuracies[-1]
+
+        if model.converged:
+            break
+
+    np.save(plot_file, accuracies)
     plt.plot(accuracies)
     plt.savefig("plots/boosted-sft-plot.png")
     plt.clf()
@@ -135,14 +88,14 @@ def boosted_softmax_regression(train_set, test_set, verbose, l_rate, n_classes, 
     return predictions, model
 
 
-def multi_mlp(train_set, test_set, verbose, l_rate, n_classes, n_epochs, batch_size, hidden_size, tol):
+def mlp(train_set, test_set, verbose, l_rate, n_classes, n_epochs, batch_size, hidden_size, tol):
     model = MLP(
         hidden_layer_sizes=hidden_size,
         learning_rate_init=l_rate,
         batch_size=batch_size,
         max_iter=n_epochs,
         solver="sgd",
-        activation="relu",
+        activation="tanh",
         nesterovs_momentum=False,
         verbose=verbose,
         tol=tol,
@@ -156,4 +109,4 @@ def multi_mlp(train_set, test_set, verbose, l_rate, n_classes, n_epochs, batch_s
     predictions = model.predict(test_set[:, :-1])
     predictions = np.argmax(predictions, axis=1)
 
-    return predictions
+    return predictions, model

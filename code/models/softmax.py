@@ -9,7 +9,7 @@ from sklearn.neural_network import MLPClassifier
 
 
 class Softmax:
-    def __init__(self, data, n_classes, l_rate=0.1, l_decay=0.95, eta=1.0, eta_decay=0.9, n_epochs=200, batch_size=50, tol=0.0001, verbose=False):
+    def __init__(self, data, n_classes, l_rate=0.1, l_decay=0.95, eta=1.0, eta_decay=0.9, n_epochs=200, batch_size=50, tol=0.0001, verbose=False, direct=False, activation="relu"):
         self.X = data[:, :-1]
         self.Y = np.eye(n_classes)[data[:, -1].astype(int)]
 
@@ -17,25 +17,34 @@ class Softmax:
 
         self.n_classes = n_classes
 
-        # self.activation = lambda x: x                     # IDENTITY
-        self.activation = lambda x: np.maximum(x, 0)      # RELU
-        # self.activation = lambda x: np.tanh(x)            # TANH
+        self.converged = False
 
         self.eta = eta
         self.eta_decay = eta_decay
 
         self.verbose = verbose
 
-        # self.tol = tol
-        # self.l_rate = l_rate
-        # self.l_decay = l_decay
-        # self.max_iters = n_epochs
-        # self.n_classes = n_classes
-        # self.batch_size = batch_size
+        self.direct = direct
+
+        if direct == True:
+            hidden_layer_sizes = ()
+        else:
+            hidden_layer_sizes = (1)
+
+            if activation == "relu":
+                self.activation = lambda x: np.maximum(x, 0)
+            elif activation == "identity":
+                self.activation = lambda x: x
+            elif activation == "tanh":
+                self.activation = lambda x: np.tanh(x)
+            elif activation == "logistic":
+                self.activation = lambda x: 1.0 / (1.0 + np.exp(-x))
+            else:
+                assert(False)
 
         self.init_model = MLPClassifier(
-            hidden_layer_sizes=(1),
-            activation="relu",
+            hidden_layer_sizes=hidden_layer_sizes,
+            activation=activation,
             max_iter=n_epochs,
             tol=tol,
             learning_rate_init=l_rate,
@@ -43,8 +52,8 @@ class Softmax:
         )
 
         self.weak_regressor_parameters = {
-            "hidden_layer_sizes": (1),
-            "activation": "relu",
+            "hidden_layer_sizes": hidden_layer_sizes,
+            "activation": activation,
             "solver": "sgd",
             "alpha": 0,
             "batch_size": batch_size,
@@ -57,21 +66,29 @@ class Softmax:
 
         self.models = list()
 
-    def predict(self, X):
-        yhat = (
+    def predict(self, X, linear=False):
+        if self.direct == True:
+            assert(linear == False)
+
+            return self.init_model.predict_proba(X)
+
+        yhat_l = (
             self.bias_hidden +
             np.matmul(
                 self.activation(
                     self.bias_input +
-                    np.matmul(X, self.coefficients_input.transpose())
-                ), self.coefficients_hidden.transpose()
+                    np.matmul(X, self.coefficients_input)
+                ), self.coefficients_hidden
             ) +
             np.sum(np.array([
                 weight * np.array(model.predict(X)) for weight, model in self.models
             ]), axis=0)
         )
 
-        yhat = np.exp(yhat)
+        if linear == True:
+            return yhat_l
+
+        yhat = np.exp(yhat_l)
 
         return yhat / np.sum(yhat, axis=1)[:, None]
 
@@ -84,50 +101,64 @@ class Softmax:
         best_weight = -1
         best_accuracy = 0
 
-        for weight in [0.01, 0.03, 0.1, 0.3, 0.5, 0.6, 0.9, 1.0]:
-            self.models.append((weight, model))
+        yhatl = self.predict(val_X, linear=True)
+        model_yhatl = np.array(model.predict(val_X))
 
-            predictions = self.predict(val_X)
-            predictions = np.argmax(predictions, axis=1)
+        weights = [0.01, 0.03] + [x * 0.1 for x in range(0, 20)]
+        for weight in weights:
+            yhat = np.exp(yhatl + weight * model_yhatl)
+            yhat = yhat / np.sum(yhat, axis=1)[:, None]
 
-            accuracy = np.mean(predictions == val_Y)
+            accuracy = np.mean(np.argmax(yhat, axis=1) == val_Y)
 
             if accuracy > best_accuracy:
                 best_accuracy = accuracy
                 best_weight = weight
 
-            self.models.pop()
-
         return best_weight
 
     def fit(self, weight=1.0, boosted=False):
-        if boosted:
-            yhat = self.predict(self.X)
-            gradients = self.Y - yhat
+        if boosted == True:
+            eta = 0
 
-            weak_model = MLPRegressor()
-            weak_model.set_params(**self.weak_regressor_parameters)
+            self.converged = True
+            for _ in range(0, 5):
+                yhat = self.predict(self.X)
+                gradients = self.Y - yhat
 
-            weak_model.fit(self.X, gradients)
+                weak_model = MLPRegressor()
+                weak_model.set_params(**self.weak_regressor_parameters)
 
-            eta = self.get_best_weight(weak_model)
+                weak_model.fit(self.X, gradients)
 
-            print eta
+                eta = self.get_best_weight(weak_model)
+
+                if self.verbose == True:
+                    print
+                    print "eta: %f" % eta
+                    print
+
+                if eta != 0:
+                    self.converged = False
+
+                if eta >= 0.1:
+                    break
+
             self.models.append((eta, weak_model))
-            # self.eta = max(self.eta * self.eta_decay, 0.1)
 
         else:
             self.init_model.fit(self.X, self.Y)
 
-            self.bias_input = np.array(self.init_model.intercepts_[0])
-            self.bias_hidden = np.array(self.init_model.intercepts_[1])
+            if self.direct == False:
+                self.bias_input = np.array(self.init_model.intercepts_[0])
+                self.bias_hidden = np.array(self.init_model.intercepts_[1])
 
-            self.coefficients_input = np.array(
-                self.init_model.coefs_[0]
-            ).transpose()
-            self.coefficients_hidden = np.array(
-                self.init_model.coefs_[1]
-            ).transpose()
+                self.coefficients_input = np.array(
+                    self.init_model.coefs_[0]
+                )
+                self.coefficients_hidden = np.array(
+                    self.init_model.coefs_[1]
+                )
 
-            if self.verbose:
+            if self.verbose == True:
                 print
