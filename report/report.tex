@@ -1,0 +1,403 @@
+\documentclass{article}
+
+\usepackage{paper}
+
+% Can work with lesser data for pre-training (TEST THIS OUT)
+
+\setpapertitle{Incremental Training of a Two Layer Neural Network}
+\setauthor[guggu@iitk.ac.in]{Gurpreet Singh}{150259}
+\addauthor[jkapoor@iitk.ac.in]{Jaivardhan Kapoor}{150300}
+
+\renewcommand{\makeheader}{
+	\begin{center}
+		\parbox{0.9\textwidth}{%
+			\hrule height4pt
+			\vspace{5mm}
+
+			\begin{center}
+				\setstretch{1.5}
+				{\fontsize{16pt}{20pt} \bt{\papertitle}}
+			\end{center}
+
+			\vspace{3mm}
+			\hrule height2pt
+		}
+
+		\vspace{5mm}
+
+		\begin{center}
+			\bt{\fontsize{11}{11}\selectfont \ut{Group 10}}
+		\end{center}
+
+
+		\parbox{0.75\textwidth}{
+			\begin{center}
+				\authors
+			\end{center}
+		}
+	\end{center}
+}
+
+\begin{document}
+\makeheader
+
+\begin{abstract}
+	Gradient boosting for convex objectives has had a rich history and literature with provable guarantees for many years now. The same cannot be said for the workings of a neural network, while the class of neural networks being incredibly powerful models, which can approximate complex function mappings. We seek to combine the two approaches with a boosted model as a warm start for a single layer neural network, with provable guarantees. We also see how gradient boosting on nodes of the hidden layer essentially corresponds to sequential training of hidden layer nodes, and therefore can be used as a starting point for application of the backpropagation scheme for better results and less overfitting. Among these, we also look at the convergence analysis of functional gradient descent, which is used to train the weak learners, or nodes in our case, and empirical results received thereafter.
+\end{abstract}
+
+\begin{psection}{Introduction}
+
+	Feed Forward Neural Networks are incredible function approximators which can, for certain complexities, approximate any function. However, there are a few caveats when it comes to training a neural network. Firstly, there is less on the proper initialization of the neural network nodes to ensure convergence. Also, the most common method of optimization is Stochastic Gradient Descent, which although provably converges to the global optima in finite steps (for finite optimal points), offers no such guarantees in case of non-convex functions. And since a neural network is a multi-level mapping of non-linear functions, the objective is highly non-convex. Therefore, SGD methods only work as heuristics in the case of neural networks.
+
+	We attempt to remedy this, up to a certain sense, by incrementally training a neural network. Although we look at only single hidden layer neural networks, it is possible to extend the theory to multiple layers as well, but the complexity of training would increase in that case.
+
+	The essential motivation behind this is that a single hidden layer neural network can be thought of as an ensemble of multiple nodes, which in our analogy become the weak learners, and the whole network as an ensemble or mixture of these weak learners. This analogy allows us to compare neural networks with other ensemble techniques, such as bagging and boosting. Since the weak learners in our case are essentially single node in a single hidden layer network, the learners have very high bias, and since bagging relies on the bias of each learner, we cannot apply much use of it.
+
+	However, the method of boosting fits very naturally in our problem setting, where we can learn one node (one weak learner) on the input data, and learn the next node on the residual of this node, and the next on the residual of the second node, and so on. This allows us to incrementally train each node, where one node communicates with a previous node only through the residuals.
+
+	We first give a brief background of the tasks we have at hand, and then a brief history of boosting, and a sketch of how we use boosting for our training. Later, we move on to an empirical comparison between incremental training and complete training of a neural network.
+
+\end{psection}
+
+\begin{psection}{Relevant Background}
+
+	\begin{psubsection}{Function Estimation}
+
+		In the function estimation problem, we usually have a set of tuples of data points and labels or response variables, commonly denoted by $\vx \in \cX$ and $y \in \cY$. We assume these tuples to be generated from a data distribution $\cD$, which is unknown to us, and the task at hand is to estimate a function $f : \cX \ra \hat{\cY}$ such that the error or risk (defined below) is minimized.
+
+		\begin{definition}[Risk]
+			The risk for a function estimate is given with respect to a loss function $l : \cY \times \hat{\cY} \ra \bR$ and a data distribution $\cD$, and is defined as
+			\begin{align*}
+				\rgrt[_\cD^l]{f} \qdeq \E[\vX, \sY \sim \cD]{\func{l}{\sY, f(\vX)}}
+			\end{align*}
+			\label{def:risk}
+		\end{definition}
+
+		The choice of loss function depends on the problem we wish to solve, and the range of the response variable $\cY$ and the function range $\hat{\cY}$. For example, if the response variable and the function range, both are Bernoulli variables, then an apt choice of the loss function is the $0-1$ loss.
+
+		We can now formally define the goal of a function estimation problem. Given a data distribution $\cD$, where random variables $\vX \in \cX$ and $\sY \in \cY$ are draw from this distribution, we wish to estimate a function $f^\ast : \cX \ra \hat{\cY}$ such that the following holds
+		\begin{align*}
+			f^\ast \qdeq \argmin{f} \E[\vX, \sY \sim \cD]{l(\sY, f(\vX))}
+		\end{align*}
+
+		\begin{pssubsection}{Working with Finite Data}
+
+			Since we do actually know the data distribution, it is impossible to find a function to minimize with respect to the data distribution. We therefore find a surrogate objective to minimize, and ensuring, under certain conditions, that the proxy function we found using the surrogate objective is representative of the function $f^\ast$, where $f^\ast$ is as defined earlier.
+
+			The surrogate objective is defined as follows
+			\begin{align*}
+				\hat{f} \qdeq \argmin{f} \frac{1}{N} \sum_{n = 1}^N \func{l}{y^n, f(\vx^n)}
+			\end{align*}
+			where the set $\cS \deq \set{(\vx^n, y^n)}_{n = 1}^N$ is sampled from the data distribution $\cD^N$ identically and independently.
+
+			\begin{remark}
+				The term on the RHS of the above optimization objective is defined as the empirical risk, denoted by $\cR_\cS^l$.
+			\end{remark}
+
+		\end{pssubsection}
+
+		\begin{pssubsection}{Working with Restricted Hypothesis Classes}
+
+			Since the objectives described above are over unconstrained spaces, we can achieve minimum error by minimizing the error point-wise, however this is usually not desired. Therefore, we limit the minimization over a restricted Hypothesis Space, denoted by $\cF$. Hence, our new objective becomes
+			\begin{align*}
+				\hat{f} \eq \argmin{f \in \cF} \frac{1}{N} \sum_{(\vx, y) \in \cS \sim \cD^N} \func{l}{y, f(\vx)}
+			\end{align*}
+
+		\end{pssubsection}
+
+	\end{psubsection}
+
+	\begin{psubsection}{Gradient Descent}
+
+		Gradient Descent or \et{Steepest Descent} is a method to optimize convex objectives where a closed form solution is not available analytically. For example, consider the objective of logistic regression, where no closed form solution is available. Therefore, we need numerical methods to reach the optimal value, $\hat{f}$.
+
+		Assume we have a convex objective $\vPhi$ to be minimized over a variable $\vh \in \cF$. A vanilla gradient descent step for the given setting looks like the following
+		\begin{enumerate}
+			\item First, the gradient $\vg_t$ at the current time step $t$ is computed as
+				\begin{align*}
+					\vg_t &\qdeq	\brac{\nabla_\vh\,\vPhi(\vh)}_{\vh = \vh_t} \\[.2em]
+					&\eq			\brac{\derp{\vPhi(\vh)}{\vh}}_{\vh = \vh_t}
+				\end{align*}
+			\item The current estimation of the optimal point $\vh_t$ is updated using the negative gradient weighted with a step value $\eta_t$ as follows
+				\begin{align*}
+					\vh_{t + 1} \eq \vh_t - \eta_t \cdot \vg_t
+				\end{align*}
+		\end{enumerate}
+
+		Gradient Descent offers good convergence guarantees for convex objectives, and better for strongly-convex and/or strongly-smooth objectives. We have discussed this is detail in our survey of \et{Gradient Descent and its Variants}.
+
+	\end{psubsection}
+
+	We now move on to Boosting Methods, especially Gradient Boosting in the next section.
+
+\end{psection}
+
+\begin{psection}{Generic Boosting Algorithms for Convex Optimization}
+
+	\begin{definition}[Boosting]
+		Boosting is a machine learning ensemble meta-algorithm for primarily reducing bias and variance \citep{boost-var} in supervised learning, and a family of machine learning algorithms which combine multiple weak learners to form a superior strong learner.
+	\end{definition}
+
+	AdaBoost \citep{adaboost} was the first successful boosting algorithm designed for classification tasks. AdaBoost uses decision stumps as weak learners and each weak learner is trained on the same data samples with the loss weighted by the rate of mis-classification for each data point. \cite{adaboost} showed that AdaBoost in fact converges and provided an upper bound on the risk for the combined classifier.
+
+	Many other boosting algorithms exist for problem specific tasks exist, such as AnyBoost, AdaBoost. \cite{gbm} provided a generic technique for boosting algorithms which provides general methods for application in any supervised learning setting with a convex objective.
+
+	\et{Friedman} in his paper proposed a novel boosting algorithm, known as Gradient Boost which is very closely related to the method of Gradient Descent, and therefore enjoys the convergence properties of Gradient Descent, although not directly.
+
+	Although there are more general boosting algorithms such as AnyBoost and DOOM proposed by \cite{anyboost}, we exclude them from our report, since Gradient Boost fits more naturally into our paradigm. We discuss the Gradient Boost Algorithm in more detail below.
+
+	\begin{psubsection}{Gradient Boost}
+
+		For the standard Boosting Methods, we restrict the form of the function $\hat{f}$ to be an additive function, \ie we restrict $\hat{f}$ such that for functions $\set{f_m \in \cH}_{m = 1}^M$ where $\cH$ is a subset of the hypothesis space of $\hat{f}$ ($\cH \in \cF$) and values $\set{\beta_m \in \bR}_{m = 1}^M$, we have
+		\begin{equation}
+			\hat{f} \eq \sum_{m = 1}^M \beta_m f(\vx; \va_m)
+		\end{equation}
+		where for each $m \in \brac{M}$, $\va_m$ represent the set of parameters that define the m\tth component of the function $\hat{f}$.
+
+		This is termed as an additive model, and boosting essentially builds an additive model. \cite{additive} showed that even AdaBoost builds an additive model, even though there is no explicit notion of additive modeling within AdaBoost.
+
+		Since we want to minimize the empirical risk defined in Section 2.1.1, we can write the objective $\vPhi : \cF \ra \bR$ as
+		\begin{align*}
+			\vPhi(f) \qdeq \frac{1}{N} \sum_{(\vx, y) \in \cS \sim \cD^N} l(y, f(\vx))
+		\end{align*}
+		and the optimal point is given as $\hat{f} = \argmin{f \in \cF} \vPhi(f)$.
+
+		Since we know that the opimal point is an additive model, we can replace the objective as
+		\begin{align*}
+			\set{\beta_m, \va_m}_{m = 1}^M \eq \argmin{\set{\beta_m, \va_m}_{m = 1}^M} \func{\vPhi}{\sum_{m = 1}^M \beta_m f(.\,;\va_m)}
+		\end{align*}
+
+		However, for most objectives, this does not give a closed form solution. Therefore, we need to apply alternate methods to optimize $\vPhi$. A proposed method is to compute the individual components greedily, \ie we keep adding a component $\beta_m f(.\,; \va_m)$ to $\hat{f}$ until convergence.
+
+		This is greedy stage wise procedure, where the current estimate, \ie at time step $m - 1$, of $\hat{f}$ is given by $\hat{f}_{m - 1}$, and the update step for the stage wise procedure can be written as two steps, given below
+		\begin{align*}
+			\beta_m, \va_m	&\eq	\argmin{\beta, \va} \vPhi(\hat{f}_{m - 1} + \beta f(.\,; \va)) \\
+			\hat{f}_m		&\eq	\hat{f}_{m - 1} + \beta_m f(.\,; \va_m)
+		\end{align*}
+
+		At this point, a resemblance can be seen between the above updates and the method of Gradient Descent \citep{fgt, gbm}. In fact, Gradient Boosting is essentially a combination of Gradient Descent and Boosting. Comparing the above update step to the update step of gradient descent, one can be convinced that replacing the $m$\tth component of $\hat{f}$ or the update of the function $\hat{f}_{m - 1}$ can be replaced by the gradient of the objective with respect to the update component, and replace $\beta_m$ with the step value at time step $m$.
+
+		More formally, we replace the update steps as follows
+		\begin{enumerate}
+			\item Compute the gradient of the minimizing objective $\vPhi$ as
+				\begin{align*}
+					g_{m - 1} \eq \brac{\derp{\vPhi(f)}{f}}_{f = \hat{f}_{m - 1}}
+				\end{align*}
+			\item The function estimate is then updated as
+				\begin{align*}
+					\hat{f}_m \eq \hat{f}_{m - 1} - \eta_m g_{m - 1}
+				\end{align*}
+		\end{enumerate}
+
+		We still have one problem to solve. The gradient in this case is a function. And in order to minimize the empirical risk, we minimize the loss function point-wise. Therefore, at a data point $(\vx, y)$, we want the value of the gradient $g_m(\vx, y)$ to be such that we take a maximum descent step from the current function estimate, at this point. More formally, we want the value of the gradient at point $(\vx, y)$ to be such that
+		\begin{align*}
+			g_m(\vx, y) \eq \brac{\derp{l(y, f(\vx))}{f}}_{f = \hat{f}_{m}}
+		\end{align*}
+		as this would allow us to take steepest descent step for each data point.
+
+		Now, since the values of the gradient at any time step depend on the data points in the set $\cS$, we only know the actual value of the gradient at these points. Therefore, instead of having a complete function, we have the value of the gradient function at a finite set of points $\cS$.
+
+		This motivates us to approximate this gradient using another function, which is to be learned. This is the point where the notion of weak learners come in. We approximate or estimate the gradient using a function $h_m \in \cH$ which belongs to a restricted hypothesis class. This function $h_m$ acts as a proxy for the gradient $g_m$ and therefore is used to update the function estimate $\hat{f}_{m - 1}$ at the previous time step. We define the function $h_m$ to be as follows
+		\begin{equation}
+			h_m \qdeq \argmax{h \in \cH} \frac{\dotp{g_m}{h_m}}{\norm{h_m}}
+			\label{eq:weak-obj}
+		\end{equation}
+		where the dot product and norm is defined over the $\sL_2$ function space \citep{functionspace}. If the hypothesis space $\cH$ is closed under scalar multiplication, the objective becomes \citep{cvx-boosting}
+		\begin{equation}
+			h_m \qdeq \argmax{h \in \cH} \norm{h_m - g_m}^2
+			\label{eq:weak-obj-closed}
+		\end{equation}
+
+		Since we do not have the data distribution, we cannot actually compute the dot product or the norm in the $\sL_2$ space, we approximate the objective using the sample set $\cS$, which allows us to know the values of $g_m$ at those points as well as find a good proxy function from the restricted hypothesis space.
+
+		This method is known as \et{Restricted Gradient Descent} where we use a surrogate to the gradient to make the actual gradient step.
+
+		The step is chosen either using Heuristics, or using line search, where the optimal value of $\beta_m$ is computed such that the update minimizes the loss. The complete algorithm for Gradient Boost is given in Algorithm \hyperlink{algo:1}{1} We formalize the notion of Restricted Gradient Descent and Gradient Boosting in the next section, while giving a convergence bound for the same.
+
+	\end{psubsection}
+
+	\begin{algo}[0.8\textwidth]{Gradient Boost}
+
+		\bt{Input:} \quad a sequence of data points $\cS \sim \cD^N$ and a loss function $l : \cY \times \hat{\cY} \ra \bR$ \sbr
+
+		\bt{Output:}\, $\hat{f}$, an estimate of the optimal function
+
+		\bt{Steps:}
+
+		\begin{enumerate}
+			\item Initialize $\hat{f}_0 \in \cH$
+			\item For $m = 0 \dots M - 1$ or until convergence, do
+				\begin{align}
+					\qforall n \in \brac{N}, \quad g_{m, n}	&\eq	\brac{\derp{l(y_n, f(\vx_n))}{f}}_{f = \hat{f}_{m}} \tag{Gradient Step} \\
+					h_m										&\eq	\argmax{h \in \cH} \frac{\dotp{g_m}{h_m}}{\norm{h_m}} \tag{Weak Learning Step} \\
+					\hat{f}_{m + 1}							&\eq	\hat{f}_m - \beta_m h_m \tag{Update Step}
+				\end{align}
+				where $\beta_m$ is equal to $\eta_m \cdot \frac{\dotp{g_m}{h_m}}{\norm{h_m}}$ and $\eta_m$ is obtained using line-search or using a heuristic step value.
+			\item Return $\hat{f} = \hat{f}_M$
+		\end{enumerate}
+		Initialize a function $\hat{f}_0$
+
+	\end{algo}
+
+	\begin{psubsection}{Convergence Analysis of Gradient Boost}
+
+		We refer to \cite{grubb2011generalized} for the convergence analysis of the Restricted Gradient descent method used for the objective here. The cited work contains some relevant definitions which we shall restate here for brevity. We shall then proceed to state theorems on convergence guarantees in regards to the notation thus introduced.
+
+		\begin{pssubsection}{Relevant notation and definitions}
+			WE will consider the Hilbert space of functions in the empirical space $\hat{P}$, where the inner product is defined as
+			\begin{align*}
+				\langle f,g\rangle=\frac{1}{N}\sum_{n=1}^N\langle f(\vx_n),g(\vx_n)\rangle
+			\end{align*}
+			From the above algorithm, we see that the ideal direction for the gradient to move in the restricted space, is the learnt weak learner. We can interpret as performing GD in the function space, to minimize the value of the functional(in this case the loss function). Since the empirical space is restricted, there are only a restricted number of directions we can move. The best direction is given by the weak learner that is learnt at every step. We define the "aligning power" of the weak learner, the ability of it to align to the real gradient of the functional,$\gamma$ as
+			\begin{align*}
+				\langle\nabla,h\rangle\geq \gamma\norm{\nabla}\norm{h}\\
+				\norm{\nabla-h}^2\leq(1-\gamma^2)\norm{\nabla}^2
+			\end{align*}
+			We also know that for smooth funtionals (having the set of subgradient only contain one element at each point) finding the weak learner for the descent step is equivalent to solving the least squares problem $\argmin{h \in \cH} \norm{\nabla-h}^2$. We are now ready to state the convergence results and analysis.
+		\end{pssubsection}
+
+		\begin{pssubsection}{Convergence Bound}
+
+			We analyse the average optimality gap $\frac{1}{T} \sum_{t = 1}^T \set{R[f_t] - R[f^*]}$. This gap is shown to approach 0 as T increases, resulting in convergence.
+			% As we shall see, there is also a regret term that is dependent on the specific weak learner used($\gamma$).
+
+			\begin{theorem}
+				Let $R_{emp}$ be $\lambda$ strongly convex functional and $\beta$ strongly smooth over $\mathcal{F}$. Let $norm{\nabla R[f]}_{\hat{P}}$. Given a starting point $f_0$ and step size $\eta=\frac{1}{\beta}$, we have
+				\begin{align*}
+					R_{emp}[f_T]-R_{emp}[f^*]\leq\Big(1-\frac{\gamma^2\lambda}{\beta}\Big)^T(R_{emp}[f_0]-R_{emp}[f^*])
+				\end{align*}
+			\end{theorem}
+
+			\begin{proof}
+				We have from the definition of strong smoothness
+				\begin{align*}
+					R[f_{t+1}]\leq R[f_t]+\langle\nabla R[f_t], f_{t+1}-f_t\rangle+\frac{\beta}{2}\norm{f_{t+1}-f_t}^2
+				\end{align*}
+				Using the update step, we have
+				\begin{align*}
+					R[f_{t+1}]\leq R[f_t]-\frac{1}{2\beta}\frac{\langle\nabla R[f_t],h_t\rangle^2}{\norm{h_t}^2}
+				\end{align*}
+				Subtract $R[f^*]$ from both sides and apply the inequality with $\gamma$ to get
+				\begin{align*}
+					R[f_{t+1}]-R[f^*]\leq R[f_t]-R[f^*]-\frac{\gamma}{2\beta}\norm{\nabla R[f_t]}^2
+				\end{align*}
+				From strong convexity we have $\norm{\nabla R[f_t]}^2\geq 2\lambda(R[f_{t}]-R[f^*])$. Thus we get the result,
+				\begin{align*}
+					R_{emp}[f_{t+1}]-R_{emp}[f^*]\leq\Big(1-\frac{\gamma^2\lambda}{\beta}\Big)(R_{emp}[f_t]-R_{emp}[f^*])
+				\end{align*}
+				Recursively applying this bound gives us the required result.
+				\qedhere
+			\end{proof}
+
+			While the convergene in the above case is linear, other optimization techniques also perform similarly well on such constraints, giving linear rates of convergence. We also see that the advantage of this algorithm quickly breaks down in the case of non smooth objectives unless we constrain the domain, and as a result \cite{grubb2011generalized} also propose a variant of the above algorithm, in which the projection step is modfied in every step. The modified algorithm (Algorithm 2, \cite{grubb2011generalized}) provides similar guarantees for strongly convex and strongly smooth objectives, and in case of strongly convex functionals provides sublinear rate of convergence($\mathcal{O}(\frac{ln~T}{T})$, Theorem 4, \cite{grubb2011generalized}). The same algorithm in the case of simply convex functionals provides a bound on the regret given below, which we shall interepret shortly(Theorem 5, \cite{grubb2011generalized}).
+			\begin{align*}
+				\frac{1}{T}\sum_{t=1}^{T}(R_{emp}[f_t]-R_{emp}[f^*])\leq \frac{F^2}{2\sqrt{T}}+\frac{G^2}{\sqrt{T}}+2FG\frac{1-\gamma^2}{2\gamma^2}
+			\end{align*}
+			We see that with increasing number of steps, there is still a term that does not decay, proportional to $\frac{1}{\gamma^2}-1$. This means that the "aligning power" of the weak learner plays a role in this case on the regret. A sufficiently good weal learner($\gamma\simeq 1$) will cause the regret term to go down and the loss function converges to the optimum. On the other hand, a terrible weak learner(having classification rate close to $\frac{1}{K}$ for K-class classification for example) will cause $\gamma$ to be very small, correspondingly increasing regret.
+
+			We shall see this effect in our empirical results, seeing that the node activations we have used have poor classification rates by themselves, increasing the regret and producing suboptimal results.
+			% \begin{theorem}
+			%     Let $R_{emp}$ be a convex functional and $\beta$ strongly smooth over $\mathcal{F}$. Let $\norm{\nabla R[f]}_{\hat{P}}$. Given a starting point $f_0$ and step size $\eta=\frac{1}{\beta}$, we have
+			%     \begin{align*}
+			%         R_{emp}[f_T]-R_{emp}[f^*]\leq\Big(1-\frac{\gamma^2\lambda}{\beta}\Big)^T(R_{emp}[f_0]-R_{emp}[f^*])
+			%     \end{align*}
+			% \end{theorem}
+
+			% \begin{proof}
+
+
+
+			% \end{proof}
+
+		\end{pssubsection}
+	\end{psubsection}
+
+\end{psection}
+
+\begin{psection}{Experiments - Softmax Regression}
+
+	We perform a simple experiment on the MNIST Dataset, where the task in hand is to classify the images based on the digit in the image. We use Softmax Regression to approach this problem, using a single hidden layer neural network.
+
+	As discussed, we try two approaches to training, an incremental approach to training, and another, the standard backpropogation scheme. The rest of the parameters in training, wherever applicable, are set to be the same.
+
+	For both the cases, the number of nodes are chosen to be 50. This means that in the case of incremental training, we use 50 stops or 50 weak learners, and take an ensemble of the weak learners so as to form a single layer neural network.
+
+	\begin{psubsection}{Training of the weak learners}
+
+		As mentioned in Section 3.1, we train each weak learner to maximize the mutual direction between the learned function and the gradients from the previous time step. In order to compute the gradient, we need to first formulate a loss function.
+
+		Since we are using softmax regression, we can use the standard loss function, that is the cross-entropy loss. Suppose we have $K$ classes, then the loss function is given as
+		\begin{align*}
+			l(y, \hat{\vy}) \eq - \sum_{k = 1}^K \is{y = k} \logp{\hat{\vy}_k}
+		\end{align*}
+		where $\hat{\vy} = \sigma(f(\vx))$ $\para{\text{where}\ f(\vx) \in \bR^K}$ is a vector with $K$ dimensions, each dimension being equal to the predictive probability of the point $\vx$ being in the corresponding class.
+
+		We can now write the gradient at the (m + 1)\tth time step for this loss as
+		\begin{align*}
+			g_m(\vx, y) &\eq	\brac{\derp{l(y, \sigma(f(\vx)))}{f}}_{f = \hat{f}_m} \\
+			&\eq				\brac{\is{y = k} - f(\vx)|_k}_{k = 1}^K
+		\end{align*}
+		where $f(\vx)|_k$ denotes the $k$\tth dimension of $f(\vx)$.
+
+		Since this is dependent on $y$, we can only compute the value of the gradient at points from the set $\cS$ (sampled set). Therefore, we need to approximate this gradient using a weak learner from the hypothesis set $\cH$. We choose this learner to be a single node single hidden layer neural networks (essential for the idea of incremental training), where the single node in the $m$\tth time step corresponds to the $m$\tth node in the hidden layer of the target neural network (to be learned incrementally).
+
+		\begin{figure}[h!]
+			\centering
+			\includegraphics[width=0.9\textwidth]{includes/boosting-comparison-plot.png}
+			\caption{Test accuracy versus the number of trained nodes in an incrementally trained network}
+			\label{fig:boosting-comp-plot}
+		\end{figure}
+
+		Since in this case, the hypothesis space is closed under scalar multiplication (as the scalar will get multiplied only to the weights incoming on the output layer, which does not disturb the hypothesis class), we can set the objective as given in equation \ref{eq:weak-obj-closed}. Since the objective is given for the data distribution which is not known, we replace the objective by an empirical objective, where the optimization is only over the data points belonging to the sample set $\cS$. Since our objective is a linear regressor, we choose the norm to be a l$_2$ norm. Therefore, our final objective becomes a simple least squares objective, given as
+		\begin{align*}
+			h_m \qdeq \argmin{h \in \cH} \sum_{(\vx, y) \in \cS} \norm{g(\vx, y) - h(\vx, y)}_2^2
+		\end{align*}
+
+		In figure \ref{fig:boosting-comp-plot}, we have shown the performance of the said boosted system, or equivalently, an incrementally trained neural network. It is clear that each individual weak learner we have chosen is embarrassingly weak, yet the performance of the trained network is decent on the dataset. However the performance does not compare well with that of a neural network trained using the backpropogation scheme, which gives over 95\% test accuracy. Therefore, even for a simple example, we can conclude that incremental training gives poorer results when compared to the collective training of a network.
+
+	\end{psubsection}
+
+	\begin{psubsection}{Incremental Training as a Pre-Training Step}
+
+		Training of a neural network, or any model can be broken into two parts, Pre-Training and Fine-Tuning. For most tasks, the pre-training is skipped, and the weights are initialized using random values, therefore only the notion of fine-tuning remains.
+
+		We performed experiments on the same classification task, with the incrementally trained neural network as a pre-training step for the network, and then applying the standard back-propogation over this pre-trained network for the purpose of fine-tuning.
+
+		The final test accuracies for each case has been reported in table \ref{tab:accuracies}. It can be seen that there are marginal improvements on the test accuracies in the case of networks which have been incrementally pre-trained. This suggests that the pre-training, although does not change the performance by a lot, can improve performance marginally, which might be helpful in cases where the predictions are extremely sensitive, for example Cancer detection.
+
+		\begin{table}[h!]
+			\centering
+			\begin{tabular}{|l|c|c|c|}
+				\hline
+				Activation Function	&	Incrementally Trained	&	Collectively Trained	&	Pre-trained + Fine-tuned	\\
+				\hline
+				sigmoid				&	85.000000				&	97.110000				&	97.460000					\\
+				relu				&	84.900000				&	96.980000				&	97.310000					\\
+				tanh				&	87.840000				&	96.450000				&	96.950000					\\
+				identity			&	85.640000				&	91.710000				&	91.820000					\\
+				\hline
+			\end{tabular}
+			\caption{Test Accuracies for Differently Trained Neural Networks}
+			\label{tab:accuracies}
+		\end{table}
+
+	\end{psubsection}
+
+\end{psection}
+
+\begin{psection}{Conclusion}
+
+	In the previous sections we had discussed the Gradient Boosting algorithm for convex objectives, applied it to sequentially train the nodes of a 1-hidden layer neural network and derived empirical results on different weak learners as node activations. The results are summarized in Table \ref{tab:accuracies}.
+
+	There are a few observations worth noting. The improvement that was anticipated as a result of the warm start provided by incremental training of nodes is not appreciable, and may also be attributed to additional training time given to the pretrained+fine-tuned method. This suggests that merely pretraining is not enough to provide an appreciable "boost" to the overall model, though it may certainly be the case that this method may induce structure in the individual activations of the nodes thereafter trained. This mode of training is vaguely similar to the greedy layer-wise approach in Deep Boltzmann Machines, though in this case the greedy approach is applied to single layer among the nodes.
+
+	We also notice from Figure \ref{fig:boosting-comp-plot} that as the number of weak learners increase, the accuracy obtained slowly saturates to a suboptimal level compared to vanilla backpropagation. We may apply early stopping in this case to infer the number of nodes ideal to a layer in the network, which can be then fine tuned to yield better results. We already know that a polynomial number of layer in a neural network will yield the same model complexity as an exponential number of nodes for a single layer, which means that the depth of a network has many-fold increase in complexity as compared to the breadth of each layer of the network.
+
+	Further work in this regard, in the direction of multi-layer pretraining using gradient boosting, may lead to efficient inference of model complexity and better warm starts. The problem that may arise in such a  case is that objectives are no longer convex for the boosting procedure, giving us no such convergence guarantees for this methods. This remains a promising avenue for exploration, one that may benefit from advances in the developing theory of nonconvex optimization techniques.
+
+\end{psection}
+
+\bibliographystyle{plainnat}
+\bibliography{report}
+
+\end{document}
