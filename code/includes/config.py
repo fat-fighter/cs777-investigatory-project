@@ -1,3 +1,4 @@
+import os
 import random
 
 
@@ -9,6 +10,9 @@ class Config:
         self.batch_size = batch_size
 
         self.eval_seed = random.randint(0, 100)
+
+        if not os.path.exists("plots"):
+            os.makedirs("plots")
 
     def set_lr(self, lr):
         self.lr = lr
@@ -26,7 +30,7 @@ class Config:
             self.tol = 0.00001
             self.lr = 0.01
 
-            self.m_stop = 50
+            self.m_stop = 25
             self.eta = 1.0
             self.eta_decay = 0.95
 

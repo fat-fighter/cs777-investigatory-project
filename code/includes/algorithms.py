@@ -62,7 +62,8 @@ def boosted_softmax_regression(train_set, test_set, verbose,
 
     accuracies.append(np.mean(test_set[:, -1] == predictions) * 100)
 
-    print bold("Stop 0") + ", Test Accuracy: % f\n" % accuracies[-1]
+    if verbose:
+        print bold("Stop 0") + ", Test Accuracy: % f\n" % accuracies[-1]
 
     for stop in range(m_stop - 1):
         if verbose:
@@ -75,8 +76,9 @@ def boosted_softmax_regression(train_set, test_set, verbose,
 
         accuracies.append(np.mean(test_set[:, -1] == predictions) * 100)
 
-        print bold("Stop %d" % (stop+1)) + \
-            ", Test Accuracy: % f\n" % accuracies[-1]
+        if verbose:
+            print bold("Stop %d" % (stop+1)) + \
+                ", Test Accuracy: % f\n" % accuracies[-1]
 
         if model.converged:
             break
@@ -116,7 +118,10 @@ def mlp(train_set, test_set, verbose, l_rate, n_classes,
 
 def pretrained_mlp(train_set, test_set, verbose, l_rate,
                    n_classes, activation, n_epochs, batch_size,
-                   hidden_size, tol, bm):
+                   tol, bm):
+
+    hidden_size = len(bm.models) + 1
+
     model = MLP(
         hidden_layer_sizes=hidden_size,
         learning_rate_init=l_rate,
@@ -168,6 +173,4 @@ def pretrained_mlp(train_set, test_set, verbose, l_rate,
     predictions = model.predict_proba(test_set[:, :-1])
     predictions = np.argmax(predictions, axis=1)
 
-    accuracy = np.mean(predictions == test_set[:, -1])
-
-    return accuracy, model
+    return predictions, model

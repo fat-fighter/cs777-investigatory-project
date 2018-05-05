@@ -78,33 +78,9 @@ def get_data(dataset):
             ),
             normalize=True
         ), [], 2
+
     # MNIST
     elif dataset == "mnist":
-        # import mnist
-
-        # images = mnist.train_images()
-        # labels = mnist.train_labels()
-
-        # images = images.reshape(
-        #     (images.shape[0], images.shape[1] * images.shape[2])
-        # )
-
-        # images = images / 255.0
-
-        # train_set = np.concatenate([images, labels[:, None]], axis=1)
-
-        # images = mnist.test_images()
-        # labels = mnist.test_labels()
-
-        # images = images.reshape(
-        #     (images.shape[0], images.shape[1] * images.shape[2])
-        # )
-
-        # images = images / 255.0
-
-        # test_set = np.concatenate([images, labels[:, None]], axis=1)
-
-        # return train_set, test_set, 10
 
         from tensorflow.examples.tutorials.mnist import input_data
 
@@ -121,3 +97,25 @@ def get_data(dataset):
         test_set = np.concatenate([images, labels[:, None]], axis=1)
 
         return train_set, test_set, 10
+
+    elif dataset == "breast_cancer":
+
+        from sklearn.datasets import load_breast_cancer
+
+        features, labels = load_breast_cancer(return_X_y=True)
+
+        train_set = np.concatenate([features, labels[:, None]], axis=1)
+
+        return train_set, train_set, 2
+
+    elif dataset == "iris":
+
+        from sklearn.datasets import load_iris
+
+        features, labels = load_iris(return_X_y=True)
+
+        train_set = np.concatenate([features, labels[:, None]], axis=1)
+
+        train_set = train_set[20:]
+
+        return train_set, train_set, 3

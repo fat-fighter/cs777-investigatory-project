@@ -10,10 +10,16 @@ from sklearn.neural_network import MLPClassifier
 
 class Softmax:
     def __init__(self, data, n_classes, l_rate=0.1, l_decay=0.95, eta=1.0, eta_decay=0.9, n_epochs=200, batch_size=50, tol=0.0001, verbose=False, direct=False, activation="relu"):
-        self.X = data[:, :-1]
-        self.Y = np.eye(n_classes)[data[:, -1].astype(int)]
+        if n_classes > 1:
+            self.X = data[:, :-1]
+            self.Y = np.eye(n_classes)[data[:, -1].astype(int)]
 
-        self.data = np.concatenate((self.X, self.Y), axis=1)
+            self.data = np.concatenate((self.X, self.Y), axis=1)
+        else:
+            self.X = data[:, :-1]
+            self.Y = data[:, -1]
+
+            self.data = np.copy(data)
 
         self.n_classes = n_classes
 
@@ -29,7 +35,7 @@ class Softmax:
         if direct == True:
             hidden_layer_sizes = ()
         else:
-            hidden_layer_sizes = (1)
+            hidden_layer_sizes = (2)
 
             if activation == "relu":
                 self.activation = lambda x: np.maximum(x, 0)
@@ -95,7 +101,10 @@ class Softmax:
     def get_best_weight(self, model):
         np.random.shuffle(self.data)
 
-        val_X, val_Y = np.split(self.data[:1000], [-self.n_classes], axis=1)
+        val = np.split(self.data[:1000], [-self.n_classes], axis=1)
+        assert(len(val) == 2)
+
+        val_X, val_Y = val
         val_Y = np.argmax(val_Y, axis=1)
 
         best_weight = -1
